@@ -1,0 +1,150 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 🔄 Multi-Provider Failover Configuration
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Provides automatic failover between AI providers:
+#   Primary:   OpenAI (GPT)
+#   Fallback1: Anthropic (Claude)
+#   Fallback2: xAI (Grok)
+#
+# If primary fails, automatically routes to next available provider.
+# Great for high-availability AI workloads.
+#
+---
+# Failover Route - Primary OpenAI, fallback to Anthropic, then xAI
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: multi-llm-failover-route
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: failover
+  annotations:
+    description: "Multi-provider failover: OpenAI → Anthropic → xAI"
+spec:
+  parentRefs:
+  - name: multi-llm-gateway
+    namespace: agentgateway-system
+  rules:
+  # 🔄 Failover path - tries providers in order
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /failover
+    backendRefs:
+    # Primary: OpenAI (weight 100 = preferred)
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: openai
+      namespace: agentgateway-system
+      weight: 100
+    # Fallback 1: Anthropic
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: anthropic
+      namespace: agentgateway-system
+      weight: 0
+    # Fallback 2: xAI
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: xai
+      namespace: agentgateway-system
+      weight: 0
+---
+# Retry Policy for Failover - enables automatic retry on failures
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: 22-failover-retry-policy
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: failover
+  annotations:
+    description: "Enables automatic retry and failover between providers"
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: multi-llm-failover-route
+  traffic:
+    retry:
+      attempts: 3
+      backoff: 1s
+      codes:
+      - 500
+      - 502
+      - 503
+      - 504
+      - 429
+---
+# A/B Testing Route - Split traffic between providers
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: multi-llm-ab-test-route
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: ab-testing
+  annotations:
+    description: "A/B testing: 80% Claude, 20% GPT"
+spec:
+  parentRefs:
+  - name: multi-llm-gateway
+    namespace: agentgateway-system
+  rules:
+  # 🧪 A/B test path - 80/20 split between Claude and GPT
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /ab-test
+    backendRefs:
+    # 80% to Anthropic (Claude)
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: anthropic
+      namespace: agentgateway-system
+      weight: 80
+    # 20% to OpenAI (GPT)
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: openai
+      namespace: agentgateway-system
+      weight: 20
+---
+# Canary Deployment Route - Test new model versions
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: multi-llm-canary-route
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: canary
+  annotations:
+    description: "Canary deployment: 95% stable (Claude), 5% canary (Grok)"
+spec:
+  parentRefs:
+  - name: multi-llm-gateway
+    namespace: agentgateway-system
+  rules:
+  # 🐤 Canary path - 95/5 split for safe rollouts
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /canary
+    backendRefs:
+    # 95% to stable (Anthropic Claude)
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: anthropic
+      namespace: agentgateway-system
+      weight: 95
+    # 5% to canary (xAI Grok - testing new provider)
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: xai
+      namespace: agentgateway-system
+      weight: 5

@@ -1,0 +1,34 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 🚫 MCP Tool Blocking - APPLY DURING DEMO
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Run during demo to show tool blocking:
+#   kubectl apply -f manifests/10-mcp-security-DEMO-BLOCK.yaml
+#
+# Remove after demo:
+#   kubectl delete -f manifests/10-mcp-security-DEMO-BLOCK.yaml
+#
+---
+# Block Fortigate tools containing dangerous keywords
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: demo-block-fortigate-tools
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: mcp-security-demo
+  annotations:
+    description: "DEMO: Blocks all Fortigate MCP tools"
+spec:
+  targetRefs:
+  - group: agentgateway.dev
+    kind: AgentgatewayBackend
+    name: fortigate-mcp
+  backend:
+    mcp:
+      authorization:
+        action: Deny
+        policy:
+          matchExpressions:
+          - "true"

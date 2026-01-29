@@ -1,0 +1,107 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 🔧 MCP (Model Context Protocol) Security Policies
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Demonstrates MCP tool security:
+#   - Tool authorization (allow/deny specific tools via CEL)
+#   - Control which tools AI agents can invoke
+#   - Filter dangerous operations
+#
+# MCP endpoints:
+#   /mcp/github    → GitHub MCP server (on agentgateway-proxy:30799)
+#   /mcp/fortigate → Fortigate MCP server  
+#   /mcp/solo-docs → Solo.io docs MCP server
+#
+---
+# MCP Tool Authorization - Only allow safe GitHub tools
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: 23-mcp-github-allow-read-tools
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: mcp-security
+  annotations:
+    description: "Only allows read operations on GitHub MCP (blocks write/delete)"
+spec:
+  targetRefs:
+  - group: agentgateway.dev
+    kind: AgentgatewayBackend
+    name: github-mcp
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+          # Allow list tools, read operations
+          - "tool.name.startsWith('get_') || tool.name.startsWith('list_') || tool.name.startsWith('search_') || tool.name == 'list_tools'"
+---
+# MCP Tool Authorization - Block dangerous Fortigate tools
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: 24-mcp-fortigate-block-dangerous
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: mcp-security
+  annotations:
+    description: "Blocks dangerous Fortigate operations (delete, reset, reboot)"
+spec:
+  targetRefs:
+  - group: agentgateway.dev
+    kind: AgentgatewayBackend
+    name: fortigate-mcp
+  backend:
+    mcp:
+      authorization:
+        action: Deny
+        policy:
+          matchExpressions:
+          # Block destructive operations
+          - "tool.name.contains('delete') || tool.name.contains('reset') || tool.name.contains('reboot') || tool.name.contains('shutdown')"
+---
+# MCP Rate Limiting via HTTPRoute (for the MCP route)
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: 25-mcp-route-rate-limit
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: mcp-security
+  annotations:
+    description: "Rate limits MCP endpoint to 30 requests/minute"
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: github-mcp
+  traffic:
+    rateLimit:
+      local:
+      - requests: 30
+        unit: Minutes
+        burst: 10
+---
+# MCP Request Timeout via HTTPRoute
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: 26-mcp-route-timeout
+  namespace: agentgateway-system
+  labels:
+    demo: agentgateway
+    category: mcp-security
+  annotations:
+    description: "60s timeout for MCP tool calls"
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: github-mcp
+  traffic:
+    timeouts:
+      request: 60s
